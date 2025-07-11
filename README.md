@@ -1,1 +1,1 @@
-# rapira-sync
+# arbitrage-sync
