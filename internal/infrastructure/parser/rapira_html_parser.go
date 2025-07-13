@@ -90,7 +90,7 @@ func FetchRapiraBid() (*domain.Order, error) {
 		return nil, err
 	}
 
-	var price float64
+	var price float64	
 	var amount float64
 
 	tableBuy := doc.Find("table.table.table-row-dashed.table-orders-sell.gy-1.gs-1")
