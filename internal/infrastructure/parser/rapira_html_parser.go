@@ -94,12 +94,12 @@ func FetchRapiraBid() (*domain.Order, error) {
 	var amount float64
 
 	tableBuy := doc.Find("table.table.table-row-dashed.table-orders-sell.gy-1.gs-1")
-	lastRow := tableBuy.Last()
+	firstRow := tableBuy.First()
 
-	priceStr := strings.ReplaceAll(lastRow.Find("td").Eq(0).Text(),  "\u00a0", "")
+	priceStr := strings.ReplaceAll(firstRow.Find("td").Eq(0).Text(),  "\u00a0", "")
 	priceStr = strings.ReplaceAll(priceStr,  " ", "")
 
-	amountStr := strings.ReplaceAll(lastRow.Find("td").Eq(1).Text(),  "\u00a0", "")
+	amountStr := strings.ReplaceAll(firstRow.Find("td").Eq(1).Text(),  "\u00a0", "")
 	amountStr = strings.ReplaceAll(amountStr,  " ", "")
 
 	price, err = strconv.ParseFloat(priceStr, 64)
