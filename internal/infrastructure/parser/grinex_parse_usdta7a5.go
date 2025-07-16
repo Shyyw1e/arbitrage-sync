@@ -2,16 +2,14 @@ package parser
 
 import (
 	"errors"
-	"strconv"
-	"strings"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
 )
 
-func GrinexAskUSDTRub() (*domain.Order, error) {
-	table, err := PreFetchGrinex("usdtrub" ,"ask_orders_panel")
+func GrinexAskUSDTA7A5() (*domain.Order, error) {
+	table, err := PreFetchGrinex("usdta7a5" ,"ask_orders_panel")
 	if err != nil {
 		logger.Log.Errorf("failed to prefetch Grinex html: %v", err)
 		return nil, err
@@ -41,18 +39,18 @@ func GrinexAskUSDTRub() (*domain.Order, error) {
 	}
 
 	order := domain.Order{
-		Price: 	price,
+		Price:	price,
 		Amount: amount,
 		Side: 	domain.SideBuy,
 		Source: domain.GrinexSource,
-		Pair: 	domain.Usdtrub,
+		Pair: 	domain.Usdta7a5,
 	}
 
 	return &order, nil
 }
 
-func GrinexBidUSDTRub() (*domain.Order, error) {
-	table, err := PreFetchGrinex("usdtrub" ,"bid_orders_panel")
+func GrinexBidUSDTA7A5() (*domain.Order, error) {
+	table, err := PreFetchGrinex("usdta7a5" ,"bid_orders_panel")
 	if err != nil {
 		logger.Log.Errorf("failed to prefetch Grinex html: %v", err)
 		return nil, err
@@ -69,36 +67,31 @@ func GrinexBidUSDTRub() (*domain.Order, error) {
 		logger.Log.Error("empty amount")
 		return nil, errors.New("empty amount")
 	}
-
-	priceStr = strings.ReplaceAll(priceStr, "\u00a0", "")
-	priceStr = strings.ReplaceAll(priceStr, " ", "")
-	amountStr = strings.ReplaceAll(amountStr, "\u00a0", "")
-	amountStr = strings.ReplaceAll(amountStr, " ", "")
 	
-	price, err := strconv.ParseFloat(priceStr, 64)
+	price, err := sanitizeNumericString(priceStr)
 	if err != nil {
 		logger.Log.Errorf("failed to parse price: %v", err)
 		return nil, err
 	}
-	amount, err := strconv.ParseFloat(amountStr, 64)
+	amount, err := sanitizeNumericString(amountStr)
 	if err != nil {
 		logger.Log.Errorf("failed to parse order: %v", err)
 		return nil, err
 	}
 
 	order := domain.Order{
-		Price: 	price,
+		Price: price,
 		Amount: amount,
-		Side: 	domain.SideSell,
+		Side: domain.SideSell,
 		Source: domain.GrinexSource,
-		Pair: 	domain.Usdtrub,
+		Pair: domain.Usdta7a5,
 	}
 
 	return &order, nil
 }
 
-func FetchGrinexAskUSDTRub() ([]*domain.Order, error) {
-	table, err := PreFetchGrinex("usdtrub" ,"ask_orders_panel")
+func FetchGrinexAskUSDTA7A5() ([]*domain.Order, error) {
+	table, err := PreFetchGrinex("usdta7a5" ,"ask_orders_panel")
 	if err != nil {
 		logger.Log.Errorf("failed to prefetch Grinex html: %v", err)
 		return nil, err
@@ -135,7 +128,7 @@ func FetchGrinexAskUSDTRub() ([]*domain.Order, error) {
 				Amount: amount,
 				Side: domain.SideBuy,
 				Source: domain.GrinexSource,
-				Pair: domain.Usdtrub,
+				Pair: domain.Usdta7a5,
 			}
 
 			orders = append(orders, &order)
@@ -146,11 +139,15 @@ func FetchGrinexAskUSDTRub() ([]*domain.Order, error) {
 		
 	})
 
+	
+
+	
+
 	return orders, nil
 }
 
-func FetchGrinexBidUSDTRub() ([]*domain.Order, error) {
-	table, err := PreFetchGrinex("usdtrub" ,"bid_orders_panel")
+func FetchGrinexBidUSDTA7A5() ([]*domain.Order, error) {
+	table, err := PreFetchGrinex("usdta7a5" ,"bid_orders_panel")
 	if err != nil {
 		logger.Log.Errorf("failed to prefetch Grinex html: %v", err)
 		return nil, err
@@ -187,7 +184,7 @@ func FetchGrinexBidUSDTRub() ([]*domain.Order, error) {
 				Amount: amount,
 				Side: domain.SideSell,
 				Source: domain.GrinexSource,
-				Pair: domain.Usdtrub,
+				Pair: domain.Usdta7a5,
 			}
 
 			orders = append(orders, &order)
@@ -198,5 +195,75 @@ func FetchGrinexBidUSDTRub() ([]*domain.Order, error) {
 		
 	})
 
+	
+
+	
+
 	return orders, nil
 }
+
+
+
+
+/*
+	func DetectAS() {
+		rapiraRed, err := FetchRapiraAsk()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Rapira ask table: %v", err)
+			return nil, err
+		}
+		rapiraGreen, err := FetchRapiraBid()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Rapira bid table: %v", err)
+			return nil, err
+		}
+		GrinexUSDTRUBRed, err := FetchGrinexAskUSDTRub()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Grinex USDT/RUB ask table: %v", err)
+			return nil, err
+		}
+		GrinexUSDTRUBGreen, err := FetchGrinexBidUSDTRub()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Grinex USDT/RUB bid table: %v", err)
+			return nil, err
+		}
+		GrinexUSDTA7A5Red, err := FetchGrinexAskUSDTA7A5()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Grinex USDT/A7A5 ask table: %v", err)
+			return nil, err
+		}
+		GrinexUSDTA7A5Green, err := FetchGrinexBidUSDTA7A5()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Grinex USDT/A7A5 bid table: %v", err)
+			return nil, err
+		}
+		GrinexRubA7A5Red, err := FetchGrinexAskRubA7A5()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Grinex A7A5/RUB ask table: %v", err)
+			return nil, err
+		}
+		GrinexRubA7A5Green, err := FetchGrinexBidRubA7A5()
+		if err != nil {
+			logger.Log.Errorf("failed to fetch Grinex A7A5/RUB bid table: %v", err)
+			return nil, err
+		}
+
+
+
+
+
+
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+*/

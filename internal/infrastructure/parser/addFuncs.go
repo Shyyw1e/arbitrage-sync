@@ -22,8 +22,8 @@ func sanitizeNumericString(s string) (float64, error) {
 	return res, nil
 }
 
-func PreFetchGrinexUSDTRub(panelClass string) (*goquery.Selection, error) {
-	resp, err := http.Get("https://grinex.io/trading/usdtrub")
+func PreFetchGrinex(endpoint string, panelClass string) (*goquery.Selection, error) {
+	resp, err := http.Get("https://grinex.io/trading/" + endpoint)
 	if err != nil {
 		logger.Log.Errorf("failed to make response: %v", err)
 		return nil, err
