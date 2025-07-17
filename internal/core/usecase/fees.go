@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	RapiraMaker = 0.001
-	RapiraTaker = 0.0
+	RapiraMaker = 0
+	RapiraTaker = 0.001
 )
 
 var GrinexFee = map[domain.Pair]float64{
@@ -19,7 +19,7 @@ var GrinexFee = map[domain.Pair]float64{
 	"A7A5/RUB":  0.0005,
 }
 
-func GetFee(source string, pair domain.Pair) (float64, error) {
+func GetFee(source domain.Source, pair domain.Pair) (float64, error) {
 	switch source {
 	case domain.GrinexSource:
 		if fee, ok := GrinexFee[pair]; ok {

@@ -1,19 +1,18 @@
 package domain
 
-import (
-
-)
+import "time"
 
 type OrderSide string
 type Pair string
 type Direction string
+type Source string
 
 const(
 	SideBuy	 OrderSide 	= "buy"			//красный стакан
 	SideSell OrderSide 	= "sell"		//зеленый стакан
 	
-	RapiraSource string = "rapira"
-	GrinexSource string = "grinex"
+	RapiraSource Source = "rapira"
+	GrinexSource Source = "grinex"
 
 	Usdta7a5	 Pair = "USDT/A7A5" 
 	Usdtrub		 Pair = "USDT/RUB"
@@ -29,7 +28,19 @@ type Order struct {
 	Amount 	float64
 	Sum		float64
 	Side 	OrderSide
-	Source 	string		// rialto
+	Source 	Source		// rialto
 	Pair   	Pair
 }
 
+type Opportunity struct {
+    BuyExchange   Source  
+	SellExchange  Source     
+	BuyPrice      float64
+	SellPrice     float64
+	BuyPair       Pair       
+	SellPair      Pair       
+	BuyAmount     float64
+	ProfitMargin  float64    
+	SuggestedBid  float64    
+	CreatedAt     time.Time
+}
