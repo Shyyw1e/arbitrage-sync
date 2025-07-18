@@ -183,6 +183,16 @@ func DetectAS(minDiff, maxSum float64) ([]*domain.Opportunity, error) {
 	if ok {
 		opportunities = append(opportunities, opportunityGrinexUSDTA7A5AskGrinexUSDTRUBBid)
 	}
-	
-	return opportunities, nil
+
+	if opportunities != nil {
+		logger.Log.Info("Arbitrage situation detected:\n")
+		for _, el := range opportunities {
+			logger.Log.Infof("Buy exchange: %v\tSell exchange: %v\nBuy price: %v\tSell price: %v\nBuy amount: %v\tProfit margin: %v\n Full profit %v",
+				el.BuyExchange, el.SellExchange, el.BuyPrice, el.SellPrice, el.BuyAmount, el.ProfitMargin, el.BuyAmount * el.ProfitMargin)
+		}	
+		return opportunities, nil
+	} else {
+		logger.Log.Info("Arbitrage situation not detected")
+		return nil, nil
+	}
 }
