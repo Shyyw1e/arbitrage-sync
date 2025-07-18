@@ -2,6 +2,7 @@ package parser
 
 import (
 	"errors"
+	"golang.org/x/net/html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -224,7 +225,11 @@ func FetchRapiraAsk() ([]*domain.Order, error) {
 		logger.Log.Errorf("failed to find table: %v", err)
 		return nil, err
 	}
-	rows := tableBuy[len(tableBuy) - 5:]
+	prerows := tableBuy[len(tableBuy) - 5:]
+	rows := make([]*html.Node, 0)
+	for i := len(prerows) - 1; i >= 0; i-- {
+		rows = append(rows, prerows[i])
+	}
 
 	orders := make([]*domain.Order, 0)
 

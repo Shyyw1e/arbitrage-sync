@@ -15,42 +15,55 @@ func DetectPairArbitrage(asks []*domain.Order, bids []*domain.Order, minDiff, ma
 		logger.Log.Errorf("failed to detect AS: %v", err)
 		return nil, false, err
 	}
-	bestAsk := asks[0]
-
-	var accumulatedAmount float64
-	for _, bid := range bids {
-		if sourceBid != domain.RapiraSource {
-			accumulatedAmount += bid.Amount
-		} else {
-			accumulatedAmount = bid.Sum
-		}
-
-		if accumulatedAmount > maxSum {
-			logger.Log.Info("accumulated amount over maxSum")
-			break
-		}
-
-		netAsk := bestAsk.Price / (1 + feeAsk)		// realPrice = price * (1 + fee)
-		netBid := bid.Price * (1 + feeBid)
-		logger.Log.Infof("netAsk: %.4f, netBid: %.4f, profit: %.4f", netAsk, netBid, netAsk - netBid)
-
-
-		if netAsk - netBid >= minDiff {
-			opportunity := &domain.Opportunity {
-				BuyExchange: sourceBid,
-				SellExchange: sourceAsk,
-				BuyPrice: bid.Price,
-				SellPrice: bestAsk.Price,
-				BuyPair: bid.Pair,
-				SellPair:bestAsk.Pair,
-				BuyAmount: bid.Amount,
-				ProfitMargin: netAsk - netBid,
-				SuggestedBid: bid.Price + 0.01,
-				CreatedAt: time.Now(),
+	var accumulatedAmountAsk float64
+	for _, bestAsk := range asks {
+		if bestAsk.Source == domain.RapiraSource {
+			if bestAsk.Sum > maxSum {
+				logger.Log.Info("accumulated sum over maxSum\nNO arbitrage situation")
+				return nil, false, nil
 			}
-			logger.Log.Infof("Found arbitrage situation:\nBuy exchange: %v\tSell exchange:%v\nBuy Price: %v\tSell Price: %v\nProfit:%v",
-				opportunity.BuyExchange, opportunity.SellExchange, opportunity.BuyPrice, opportunity.SellPrice, opportunity.ProfitMargin)
-			return opportunity, true, nil
+		}else {
+			accumulatedAmountAsk += bestAsk.Amount
+			if accumulatedAmountAsk > maxSum {
+				logger.Log.Info("accumulated sum over maxSum\nNO arbitrage situation")
+				return nil, false, nil
+			}
+		}
+		var accumulatedAmount float64
+		for _, bid := range bids {
+			if sourceBid != domain.RapiraSource {
+				accumulatedAmount += bid.Amount
+			} else {
+				accumulatedAmount = bid.Sum
+			}
+
+			if accumulatedAmount > maxSum {
+				logger.Log.Info("accumulated amount over maxSum")
+				break
+			}
+
+			netAsk := bestAsk.Price / (1 + feeAsk)		// realPrice = price * (1 + fee)
+			netBid := bid.Price * (1 + feeBid)
+			logger.Log.Infof("netAsk: %.4f, netBid: %.4f, profit: %.4f", netAsk, netBid, netAsk - netBid)
+
+
+			if netAsk - netBid >= minDiff {
+				opportunity := &domain.Opportunity {
+					BuyExchange: sourceBid,
+					SellExchange: sourceAsk,
+					BuyPrice: bid.Price,
+					SellPrice: bestAsk.Price,
+					BuyPair: bid.Pair,
+					SellPair:bestAsk.Pair,
+					BuyAmount: bid.Amount,
+					ProfitMargin: netAsk - netBid,
+					SuggestedBid: bid.Price + 0.01,
+					CreatedAt: time.Now(),
+				}
+				logger.Log.Infof("Found arbitrage situation:\nBuy exchange: %v\tSell exchange:%v\nBuy Price: %v\tSell Price: %v\nProfit:%v",
+					opportunity.BuyExchange, opportunity.SellExchange, opportunity.BuyPrice, opportunity.SellPrice, opportunity.ProfitMargin)
+				return opportunity, true, nil
+			}
 		}
 	}
 	return nil, false, nil
@@ -144,6 +157,32 @@ func DetectAS(minDiff, maxSum float64) ([]*domain.Opportunity, error) {
 		opportunities = append(opportunities, opportunityGrinexUSDTA7A5AskRapiraBid)
 	}
 
+	opportunityRapiraAskGrinexUSDTA7A5Bid, ok, err := DetectPairArbitrage(rapiraRed, GrinexUSDTA7A5Green, minDiff, maxSum, 0.0, 0.0005, domain.RapiraSource, domain.GrinexSource, domain.Usdta7a5)
+	if err != nil {
+		logger.Log.Errorf("failed to detect AS: %v", err)
+		return nil, err
+	}
+	if ok {
+		opportunities = append(opportunities, opportunityRapiraAskGrinexUSDTA7A5Bid)
+	}
+
+	opportunityGrinexUSDTRUBAskGrinexUSDTA7A5Bid, ok, err := DetectPairArbitrage(GrinexUSDTRUBRed, GrinexUSDTA7A5Green, minDiff, maxSum, 0.001, 0.0005, domain.GrinexSource, domain.GrinexSource, domain.Usdta7a5)
+	if err != nil {
+		logger.Log.Errorf("failed to detect AS: %v", err)
+		return nil, err
+	}
+	if ok {
+		opportunities = append(opportunities, opportunityGrinexUSDTRUBAskGrinexUSDTA7A5Bid)
+	}
+
+	opportunityGrinexUSDTA7A5AskGrinexUSDTRUBBid, ok, err := DetectPairArbitrage(GrinexUSDTA7A5Red, GrinexUSDTRUBGreen, minDiff, maxSum, 0.0005, 0.001, domain.GrinexSource, domain.GrinexSource, domain.Usdta7a5)
+	if err != nil {
+		logger.Log.Errorf("failed to detect AS: %v", err)
+		return nil, err
+	}
+	if ok {
+		opportunities = append(opportunities, opportunityGrinexUSDTA7A5AskGrinexUSDTRUBBid)
+	}
 	
 	return opportunities, nil
 }
