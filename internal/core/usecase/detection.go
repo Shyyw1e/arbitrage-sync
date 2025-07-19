@@ -2,12 +2,15 @@ package usecase
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/parser"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
 )
+
+var RecentHashes = make(map[string]time.Time)
 
 func DetectPairArbitrage(asks []*domain.Order, bids []*domain.Order, minDiff, maxSum, feeAsk, feeBid float64, sourceAsk, sourceBid domain.Source, pair domain.Pair) (*domain.Opportunity, bool, error) {
 	if len(asks) == 0 || len(bids) == 0 {
@@ -70,6 +73,7 @@ func DetectPairArbitrage(asks []*domain.Order, bids []*domain.Order, minDiff, ma
 }
 
 func DetectAS(minDiff, maxSum float64) ([]*domain.Opportunity, error) {
+	CleanUpRecentHashes()
 	opportunities := make([]*domain.Opportunity, 0)
 
 	rapiraRed, err := parser.FetchRapiraAsk()
@@ -183,16 +187,42 @@ func DetectAS(minDiff, maxSum float64) ([]*domain.Opportunity, error) {
 	if ok {
 		opportunities = append(opportunities, opportunityGrinexUSDTA7A5AskGrinexUSDTRUBBid)
 	}
-
-	if opportunities != nil {
+	
+	cleanOps := make([]*domain.Opportunity, 0)
+	for _, op := range opportunities {
+		hash := HashOpportunity(op)
+		if _, seen := RecentHashes[hash]; seen {
+			continue
+		}
+		markAsSeen(hash)
+		cleanOps = append(cleanOps, op)
+	}
+	if len(cleanOps) > 0 {
 		logger.Log.Info("Arbitrage situation detected:\n")
-		for _, el := range opportunities {
+		for _, el := range cleanOps {
 			logger.Log.Infof("Buy exchange: %v\tSell exchange: %v\nBuy price: %v\tSell price: %v\nBuy amount: %v\tProfit margin: %v\n Full profit %v",
 				el.BuyExchange, el.SellExchange, el.BuyPrice, el.SellPrice, el.BuyAmount, el.ProfitMargin, el.BuyAmount * el.ProfitMargin)
 		}	
-		return opportunities, nil
+		return cleanOps, nil
 	} else {
 		logger.Log.Info("Arbitrage situation not detected")
 		return nil, nil
 	}
+}
+
+func HashOpportunity(op *domain.Opportunity) string {
+	return fmt.Sprintf("%s-%s-%f-%f-%f", op.BuyExchange, op.SellExchange, op.BuyPrice, op.SellPrice, op.BuyAmount)
+}
+
+func CleanUpRecentHashes() {
+	now := time.Now()
+	for hash, t := range RecentHashes {
+		if now.Sub(t) > time.Hour {
+			delete(RecentHashes, hash)
+		}
+	}
+}
+
+func markAsSeen(hash string) {
+	RecentHashes[hash] = time.Now()
 }
