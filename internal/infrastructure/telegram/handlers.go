@@ -7,13 +7,14 @@ import (
 	"strings"
 
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
+	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/db"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/scheduler"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, store *domain.UserStatesStore) error{
+func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, store db.UserStatesStore) error{
 	chatID := msg.Chat.ID
 	text := msg.Text
 
@@ -28,14 +29,14 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, store *domain.Us
 		return nil
 	}
 
-	state, ok := store.Get(chatID)
-	if !ok {
+	state, err := store.Get(chatID)
+	if err != nil {
 		if _, err := bot.Send(tgbotapi.NewMessage(chatID, "Сначала введите /start")); err != nil {
 			logger.Log.Errorf("failed to send message: %v", err)
 			return err
 		}
-		logger.Log.Error("invalid message")
-		return errors.New("invalid message")
+		logger.Log.Errorf("failed to get user state: %v", err)
+		return err
 	}
 
 	if state.Step == "waiting_for_input" {
@@ -77,15 +78,15 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, store *domain.Us
 
 
 
-func handleCallback(bot *tgbotapi.BotAPI, cb *tgbotapi.CallbackQuery, store *domain.UserStatesStore) error {
+func handleCallback(bot *tgbotapi.BotAPI, cb *tgbotapi.CallbackQuery, store db.UserStatesStore) error {
 	chatID := cb.Message.Chat.ID
 	data := cb.Data
 
-	userState, ok := store.Get(chatID)
-	if !ok {
-		logger.Log.Error("failed to get user state")
+	userState, err := store.Get(chatID)
+	if err != nil {
+		logger.Log.Errorf("failed to get user state: %v", err)
 		_, _ = bot.Send(tgbotapi.NewMessage(chatID, "Сначала введите параметры."))
-		return errors.New("no user state")
+		return err
 	}
 
 	switch data {

@@ -1,6 +1,9 @@
 package domain
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type UserState struct {
 	MinDiff float64
@@ -20,12 +23,16 @@ func NewUserStatesStore() *UserStatesStore {
 	}
 }
 
-func (s *UserStatesStore) Get(chatID int64) (*UserState, bool) {
+func (s *UserStatesStore) Get(chatID int64) (*UserState, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	val, ok := s.store[chatID]
-	return val, ok
+	if !ok {
+		err := fmt.Errorf("no user state with such chat ID: %v", ok)
+		return val, err
+	}
+	return val, nil	
 }
 
 func (s *UserStatesStore) Set(chatID int64, state *UserState) {

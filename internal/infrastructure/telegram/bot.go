@@ -3,14 +3,17 @@ package telegram
 import (
 	"os"
 
+	
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
-	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
+	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/db"
+
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 
 
-func StartBot(store *domain.UserStatesStore) error{
+func StartBot(store db.UserStatesStore) error{
+	
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	bot, err := tgbotapi.NewBotAPI(botToken)
 	if err != nil {
