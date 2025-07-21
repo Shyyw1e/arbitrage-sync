@@ -200,8 +200,8 @@ func DetectAS(minDiff, maxSum float64) ([]*domain.Opportunity, error) {
 	if len(cleanOps) > 0 {
 		logger.Log.Info("Arbitrage situation detected:\n")
 		for _, el := range cleanOps {
-			logger.Log.Infof("Buy exchange: %v\tSell exchange: %v\nBuy price: %v\tSell price: %v\nBuy amount: %v\tProfit margin: %v\n Full profit %v",
-				el.BuyExchange, el.SellExchange, el.BuyPrice, el.SellPrice, el.BuyAmount, el.ProfitMargin, el.BuyAmount * el.ProfitMargin)
+			logger.Log.Infof("Buy exchange: %v\tSell exchange: %v\nBuy price: %v\tSell price: %v\nBuy amount: %v\tProfit margin: %v\n Full profit %v\n",
+				el.BuyExchange, el.SellExchange, el.BuyPrice, el.SellPrice, el.BuyAmount, el.ProfitMargin, el.BuyAmount * (1 + el.ProfitMargin))
 		}	
 		return cleanOps, nil
 	} else {
