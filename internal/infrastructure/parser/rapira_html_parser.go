@@ -1,15 +1,19 @@
 package parser
 
 import (
-	"errors"
-	"golang.org/x/net/html"
+	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
+
+
+
 	"github.com/PuerkitoBio/goquery"
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
+	"github.com/chromedp/chromedp"
 )
 
 //table.table.table-row-dashed.table-orders-buy.gy-1.gs-1.mb-0		красный стакан
@@ -125,149 +129,116 @@ func RapiraBid() (*domain.Order, error) {
 }
 
 func FetchRapiraBid() ([]*domain.Order, error) {
-	resp, err := http.Get("https://rapira.net/exchange/USDT_RUB")
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	var htmlContent string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate("https://rapira.net/exchange/USDT_RUB"),
+		chromedp.WaitVisible(`table.table-orders-sell`, chromedp.ByQuery),
+		chromedp.OuterHTML("html", &htmlContent),
+	)
 	if err != nil {
-		logger.Log.Errorf("failed to get response: %v", err)
+		logger.Log.Errorf("chromedp error: %v", err)
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		logger.Log.Error("invalid status cod (not 200)")
-		return nil, err
-	}
-	if resp.Body == nil {
-		logger.Log.Error("empty response body")
-		return nil, err
-	}
-	defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
 	if err != nil {
-		logger.Log.Errorf("failed to make document from resp.Body: %v", err)
+		logger.Log.Errorf("failed to parse HTML: %v", err)
 		return nil, err
 	}
 
-	
+	rows := doc.Find("table.table-orders-sell tbody tr")
+	if rows.Length() < 5 {
+		logger.Log.Error("not enough bid rows")
+		return nil, fmt.Errorf("bid table too short")
+	}
 
-	tableBuy := doc.Find("table.table.table-row-dashed.table-orders-sell.gy-1.gs-1")
-	count := 0
-	orders := make([]*domain.Order, 0)
-	tableBuy.Each(func(i int, s *goquery.Selection) {
-		if count < 5 {
-			tds := s.Find("td")
-			if tds.Length() < 3 {
-				return
-			}
-
-			priceStr := tds.Eq(0).Text()
-			amountStr := tds.Eq(1).Text()
-			sumStr := tds.Eq(2).Text()
-			price, err := sanitizeNumericString(priceStr)
-			if err != nil {
-				logger.Log.Errorf("failed to convert string price: %v", err)
-				return 
-			}
-			amount, err := sanitizeNumericString(amountStr)
-			if err != nil {
-				logger.Log.Errorf("failed to convert string amount: %v", err)
-				return 
-			}
-			sum, err := sanitizeNumericString(sumStr)
-			if err != nil {
-				logger.Log.Errorf("failed to convert string sum: %v", err)
-				return 
-			}
-
-			orders = append(orders, &domain.Order{
-				Price: price,
-				Amount: amount,
-				Sum: sum,
-				Side: domain.SideSell,
-				Source: domain.RapiraSource,
-				Pair: domain.Usdtrub,
-			})
-			count++
-		} else {
-			return 
+	orders := []*domain.Order{}
+	rows.EachWithBreak(func(i int, s *goquery.Selection) bool {
+		if i >= 5 {
+			return false
 		}
-
-		
+		tds := s.Find("td")
+		if tds.Length() < 3 {
+			return true
+		}
+		price, err1 := sanitizeNumericString(tds.Eq(0).Text())
+		amount, err2 := sanitizeNumericString(tds.Eq(1).Text())
+		sum, err3 := sanitizeNumericString(tds.Eq(2).Text())
+		if err1 != nil || err2 != nil || err3 != nil {
+			return true
+		}
+		orders = append(orders, &domain.Order{
+			Price:  price,
+			Amount: amount,
+			Sum:    sum,
+			Side:   domain.SideSell,
+			Source: domain.RapiraSource,
+			Pair:   domain.Usdtrub,
+		})
+		return true
 	})
 
 	return orders, nil
 }
 
+
 func FetchRapiraAsk() ([]*domain.Order, error) {
-	resp, err := http.Get("https://rapira.net/exchange/USDT_RUB")
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	var htmlContent string
+	err := chromedp.Run(ctx,
+		chromedp.Navigate("https://rapira.net/exchange/USDT_RUB"),
+		chromedp.WaitVisible(`table.table-orders-buy`, chromedp.ByQuery),
+		chromedp.OuterHTML("html", &htmlContent),
+	)
 	if err != nil {
-		logger.Log.Errorf("failed to get response: %v", err)
+		logger.Log.Errorf("chromedp error: %v", err)
 		return nil, err
 	}
-	if resp.StatusCode != http.StatusOK {
-		logger.Log.Error("invalid status cod (not 200)")
-		return nil, err
-	}
-	if resp.Body == nil {
-		logger.Log.Error("empty response body")
-		return nil, err
-	}
-	defer resp.Body.Close()
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
 	if err != nil {
-		logger.Log.Errorf("failed to make document from resp.Body: %v", err)
+		logger.Log.Errorf("failed to parse HTML: %v", err)
 		return nil, err
 	}
 
-
-	tableBuy := doc.Find("table.table.table-row-dashed.table-orders-buy.gy-1.gs-1.mb-0").Nodes
-	if len(tableBuy) < 5 {
-		err := errors.New("invalid table (length<5)")
-		logger.Log.Errorf("failed to find table: %v", err)
-		return nil, err
-	}
-	prerows := tableBuy[len(tableBuy) - 5:]
-	rows := make([]*html.Node, 0)
-	for i := len(prerows) - 1; i >= 0; i-- {
-		rows = append(rows, prerows[i])
+	rows := doc.Find("table.table-orders-buy tbody tr")
+	if rows.Length() < 5 {
+		logger.Log.Error("not enough ask rows")
+		return nil, fmt.Errorf("ask table too short")
 	}
 
-	orders := make([]*domain.Order, 0)
-
-	for _, row := range rows {
-		sel := goquery.NewDocumentFromNode(row)
-		tds := sel.Find("td")
+	orders := []*domain.Order{}
+	rows.EachWithBreak(func(i int, s *goquery.Selection) bool {
+		tds := s.Find("td")
 		if tds.Length() < 3 {
-			continue
+			return true
 		}
-		priceStr := tds.Eq(0).Text()
-		amountStr := tds.Eq(1).Text()
-		sumStr := tds.Eq(2).Text()
-		price, err := sanitizeNumericString(priceStr)
-		if err != nil {
-			logger.Log.Errorf("failed to convert string price: %v", err)
-			continue 
+		price, err1 := sanitizeNumericString(tds.Eq(0).Text())
+		amount, err2 := sanitizeNumericString(tds.Eq(1).Text())
+		sum, err3 := sanitizeNumericString(tds.Eq(2).Text())
+		if err1 != nil || err2 != nil || err3 != nil {
+			return true
 		}
-		amount, err := sanitizeNumericString(amountStr)
-		if err != nil {
-			logger.Log.Errorf("failed to convert string amount: %v", err)
-			continue
-		}
-		sum, err := sanitizeNumericString(sumStr)
-		if err != nil {
-			logger.Log.Errorf("failed to convert string sum: %v", err)
-			continue
-		}
-
 		orders = append(orders, &domain.Order{
-			Price: price,
+			Price:  price,
 			Amount: amount,
-			Sum: sum,
-			Side: domain.SideBuy,
+			Sum:    sum,
+			Side:   domain.SideBuy,
 			Source: domain.RapiraSource,
-			Pair: domain.Usdtrub,
+			Pair:   domain.Usdtrub,
 		})
-
+		return true
+	})
+	cleanOrders := make([]*domain.Order, 0)
+	for i := len(orders) - 1; i >= len(orders) - 5; i-- {
+		cleanOrders = append(cleanOrders, orders[i])
 	}
-
-	return orders, nil
+	
+	logger.Log.Info("Rapira parsed")
+	return cleanOrders, nil
 }

@@ -12,13 +12,11 @@ import (
 
 
 
-func StartBot(store db.UserStatesStore) error{
-	
+func StartBot(store db.UserStatesStore) {
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	bot, err := tgbotapi.NewBotAPI(botToken)
 	if err != nil {
 		logger.Log.Errorf("failed to create start bot: %v", err)
-		return err
 	}
 	bot.Debug = true
 	logger.Log.Infof("Authorized on account %s", bot.Self.UserName)
@@ -31,18 +29,14 @@ func StartBot(store db.UserStatesStore) error{
 		if update.Message != nil {
 			if err := handleMessage(bot, update.Message, store); err != nil {
 				logger.Log.Errorf("failed to handle message: %v", err)
-				return err
 			}
 		} else if update.CallbackQuery != nil{
 			if err := handleCallback(bot, update.CallbackQuery, store); err != nil {
 				logger.Log.Errorf("failed to handle callback: %v", err)
-				return err
 			}
 		}
 	}
 
-	
-	return nil
 }
 
 
