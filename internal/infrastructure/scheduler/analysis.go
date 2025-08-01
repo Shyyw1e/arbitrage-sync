@@ -47,7 +47,7 @@ func StartAnalysisForUser(bot *tgbotapi.BotAPI, chatID int64, userState *domain.
 				return
 
 			default:
-				opps, err := usecase.DetectAS(userState.MinDiff, userState.MaxSum)
+				opps, pots, err := usecase.DetectAS(userState.MinDiff, userState.MaxSum)
 				if err != nil {
 					logger.Log.Errorf("failed to detect: %v", err)
 					continue 
@@ -60,6 +60,16 @@ func StartAnalysisForUser(bot *tgbotapi.BotAPI, chatID int64, userState *domain.
 						continue 
 					}
 				}
+
+				for _, pot := range pots {
+					msgAS := fmt.Sprintf("Потенциальная ситуация:\nExchange зеленого стакана: %v\nExchange красного стакана: %v\nPrice зеленого стакана: %v\nPrice красного стакана: %v\nAmount: %v\nProfit Margin: %v\nExpecting income: %v",
+						 pot.BuyExchange, pot.SellExchange, pot.BuyPrice, pot.SellPrice, pot.BuyAmount, pot.ProfitMargin, pot.BuyAmount * (1 + pot.ProfitMargin))
+					if _, err := bot.Send(tgbotapi.NewMessage(chatID, msgAS)); err != nil {
+						logger.Log.Errorf("failed to send the message:%v", err)
+						continue 
+					}
+				}
+
 
 				time.Sleep(time.Second * 10)
 

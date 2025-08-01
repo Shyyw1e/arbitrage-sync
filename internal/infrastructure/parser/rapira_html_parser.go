@@ -181,6 +181,7 @@ func FetchRapiraBid() ([]*domain.Order, error) {
 		return true
 	})
 
+	logger.Log.Info("Rapira Bid parsed")
 	return orders, nil
 }
 
@@ -239,6 +240,6 @@ func FetchRapiraAsk() ([]*domain.Order, error) {
 		cleanOrders = append(cleanOrders, orders[i])
 	}
 	
-	logger.Log.Info("Rapira parsed")
+	logger.Log.Info("Rapira Ask parsed")
 	return cleanOrders, nil
 }
