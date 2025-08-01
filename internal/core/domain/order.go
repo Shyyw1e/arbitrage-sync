@@ -12,7 +12,8 @@ const(
 	SideSell OrderSide 	= "sell"		//зеленый стакан
 	
 	RapiraSource Source = "rapira"
-	GrinexSource Source = "grinex"
+	GrinexUSDTRUBSource Source = "grinex USDT/RUB"
+	GrinexUSDTA7A5Source Source = "grinex USDT/A7A5"
 
 	Usdta7a5	 Pair = "USDT/A7A5" 
 	Usdtrub		 Pair = "USDT/RUB"
