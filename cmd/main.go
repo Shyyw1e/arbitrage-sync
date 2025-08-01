@@ -1,11 +1,14 @@
 package main
 
 import (
-	"github.com/joho/godotenv"
+	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/cache"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/db"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/telegram"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
+	"github.com/joho/godotenv"
 )
+
+var GlobalOrderCache *cache.OrderCache
 
 func main() {
 	logger.InitLog("debug")
