@@ -8,6 +8,7 @@ import (
 
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/db"
+	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/redisqueue"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/scheduler"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
 
@@ -41,8 +42,7 @@ func handleMessage(bot *tgbotapi.BotAPI, msg *tgbotapi.Message, store db.UserSta
 
 		preMsg := fmt.Sprintf("Запускаю анализ!\nМинимальная разница: %v\nМаксимальная сумма: %v", state.MinDiff, state.MaxSum)
 		bot.Send(tgbotapi.NewMessage(chatID, preMsg))
-
-		err = scheduler.StartAnalysisForUser(bot, chatID, state)
+		err = redisqueue.StartAnalysisForUser(bot, chatID, state)
 		if err != nil {
 			logger.Log.Errorf("failed to start analysis: %v", err)
 			bot.Send(tgbotapi.NewMessage(chatID, "Не удалось запустить анализ."))
