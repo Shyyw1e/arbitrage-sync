@@ -59,6 +59,12 @@ func QueueLength() (int64, error) {
 }
 
 func StartAnalysisForUser(bot *tgbotapi.BotAPI, chatID int64, userState *domain.UserState) error {
+	userState.Step = "ready_to_run"
+	if err := userStore.Set(chatID, userState); err != nil {
+		logger.Log.Errorf("failed to update user state to ready_to_run: %v", err)
+		return err
+	}
+
 	job := fmt.Sprintf("detect-as:%.2f:%.2f:%d", userState.MinDiff, userState.MaxSum, chatID)
 	err := EnqueueJob(job)
 	if err != nil {
@@ -66,5 +72,6 @@ func StartAnalysisForUser(bot *tgbotapi.BotAPI, chatID int64, userState *domain.
 		return err
 	}
 
+	logger.Log.Infof("Enqueued job: %s", job)
 	return nil
 }
