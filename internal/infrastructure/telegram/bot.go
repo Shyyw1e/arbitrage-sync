@@ -1,7 +1,6 @@
 package telegram
 
 import (
-	"os"
 
 	
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
@@ -12,15 +11,7 @@ import (
 
 
 
-func StartBot(store db.UserStatesStore) {
-	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
-	bot, err := tgbotapi.NewBotAPI(botToken)
-	if err != nil {
-		logger.Log.Errorf("failed to create start bot: %v", err)
-	}
-	bot.Debug = true
-	logger.Log.Infof("Authorized on account %s", bot.Self.UserName)
-
+func StartBotWithBot(bot *tgbotapi.BotAPI, store db.UserStatesStore) {
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 10
 	updates := bot.GetUpdatesChan(u)
@@ -30,13 +21,12 @@ func StartBot(store db.UserStatesStore) {
 			if err := handleMessage(bot, update.Message, store); err != nil {
 				logger.Log.Errorf("failed to handle message: %v", err)
 			}
-		} else if update.CallbackQuery != nil{
+		} else if update.CallbackQuery != nil {
 			if err := handleCallback(bot, update.CallbackQuery, store); err != nil {
 				logger.Log.Errorf("failed to handle callback: %v", err)
 			}
 		}
 	}
-
 }
 
 
