@@ -37,7 +37,7 @@ func fetchGrinexOrders(url string, pair domain.Pair, side domain.OrderSide, pane
 	ctx, cancel := chromedp.NewContext(allocatorCtx)
 	defer cancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel = context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 
 	selector := fmt.Sprintf(`div#order_book_holder[data-market="%s_tab"] div.%s table`, marketTab, panelClass)
