@@ -12,7 +12,7 @@ var RedisClient *redis.Client
 
 func InitRedisClient() error {
 	RedisClient = redis.NewClient(&redis.Options{
-		Addr: 		"localhost:6379",
+		Addr: 		"redis-internal:6379",
 		Password:	"",
 		DB: 		0,
 	})
