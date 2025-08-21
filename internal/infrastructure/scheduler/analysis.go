@@ -47,7 +47,7 @@ func StartAnalysisForUser(bot *tgbotapi.BotAPI, chatID int64, userState *domain.
 				return
 
 			default:
-				opps, pots, err := usecase.DetectAS(userState.MinDiff, userState.MaxSum)
+				opps, pots, err := usecase.DetectAS(userState.MinDiff, userState.MaxSum, chatID)
 				if err != nil {
 					logger.Log.Errorf("failed to detect: %v", err)
 					continue 

@@ -1,31 +1,28 @@
+# ===== build =====
 FROM golang:1.24-bookworm AS builder
 
-RUN apt-get update && apt-get install -y \
-  git \
-  gcc \
-  g++ \
-  make \
-  libsqlite3-dev \
-  ca-certificates
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  git gcc g++ make libsqlite3-dev ca-certificates && \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-
-COPY go.mod ./
-COPY go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . ./
-RUN CGO_ENABLED=1 go build -o arbitrage-sync ./cmd
+COPY . .
+RUN CGO_ENABLED=1 go build -o /out/arbitrage-sync ./cmd
 
 FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
   chromium \
   ca-certificates \
   tzdata \
   libsqlite3-0 \
   fonts-liberation \
-  libappindicator3-1 \
   libasound2 \
   libatk-bridge2.0-0 \
   libatk1.0-0 \
@@ -47,11 +44,32 @@ RUN apt-get update && apt-get install -y \
   libxdamage1 \
   libxrandr2 \
   xdg-utils \
-  && apt-get clean
+  dumb-init && \
+  rm -rf /var/lib/apt/lists/*
+
+ENV CHROME_BIN=/usr/bin/chromium \
+    TZ=Europe/Moscow
+
+# Рекомендуемые флаги для headless в контейнере.
+# Если у вас chromedp/puppeteer/playwright — просто читайте эти флаги из ENV в коде.
+ENV CHROME_FLAGS="\
+  --headless=new \
+  --disable-gpu \
+  --disable-software-rasterizer \
+  --disable-dev-shm-usage \
+  --no-zygote \
+  --remote-debugging-pipe \
+  --window-size=1920,1080 \
+  --hide-scrollbars \
+  --no-sandbox \
+  "
+
+# Если sandbox у вас ломается (часто в docker под root) — ДОБАВЬТЕ:
+# ENV CHROME_FLAGS=\"$CHROME_FLAGS --no-sandbox\"
+# (включайте осознанно, это компромисс по безопасности)
 
 WORKDIR /app
-COPY --from=builder /app/arbitrage-sync .
-COPY .env .
-COPY data.db .
+COPY --from=builder /out/arbitrage-sync /usr/local/bin/arbitrage-sync
 
-CMD ["./arbitrage-sync"]
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["/usr/local/bin/arbitrage-sync"]

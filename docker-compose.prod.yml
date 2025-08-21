@@ -1,0 +1,38 @@
+services:
+  redis-internal:
+    image: redis:latest
+    container_name: redis-internal
+    restart: always
+    ports:
+      - "6379:6379"
+
+  bot:
+    image: arbitrage-sync-bot:latest
+    container_name: arbitrage-sync
+    restart: unless-stopped
+    depends_on:
+      - redis-internal
+    env_file:
+      - .env
+    environment:
+      CHROME_BIN: /usr/bin/chromium
+      CHROME_FLAGS: >-
+        --headless=new
+        --disable-gpu
+        --disable-software-rasterizer
+        --disable-dev-shm-usage
+        --no-zygote
+        --remote-debugging-pipe
+        --window-size=1920,1080
+        --hide-scrollbars
+        # при необходимости добавьте: --no-sandbox
+    shm_size: "1gb"              
+    ulimits:                     
+      nproc: 8192
+      nofile:
+        soft: 65536
+        hard: 65536
+    pids_limit: -1               
+    volumes:
+      - /root/.env:/app/.env:ro
+      - /root/data.db:/app/data.db:rw

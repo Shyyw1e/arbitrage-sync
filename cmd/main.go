@@ -5,6 +5,7 @@ import (
 
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/cache"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/db"
+	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/parser"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/redisqueue"
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/telegram"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
@@ -19,11 +20,15 @@ func main() {
 
 	if err := godotenv.Load(); err != nil {
 		logger.Log.Errorf("failed to load .env: %v", err)
-		return
 	}
 
-	err := redisqueue.InitRedisClient()
-	if err != nil {
+	if err := parser.StartChromeAllocator(); err != nil {
+		logger.Log.Fatalf("chrome allocator start: %v", err)
+	}
+	defer parser.StopChromeAllocator()
+	parser.SetChromeParallelLimit(1)
+
+	if err := redisqueue.InitRedisClient(); err != nil {
 		logger.Log.Fatalf("failed to init redis: %v", err)
 	}
 
@@ -33,11 +38,14 @@ func main() {
 	}
 
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if botToken == "" {
+		logger.Log.Fatalf("TELEGRAM_BOT_TOKEN is empty")
+	}
 	bot, err := tgbotapi.NewBotAPI(botToken)
 	if err != nil {
 		logger.Log.Fatalf("Telegram bot init error: %v", err)
 	}
-	
+
 	redisqueue.InitRedisQueue(store)
 	go redisqueue.StartWorkerLoop(bot)
 
