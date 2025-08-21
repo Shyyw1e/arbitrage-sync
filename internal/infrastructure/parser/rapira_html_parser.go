@@ -1,14 +1,11 @@
 package parser
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-
-
-
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/domain"
@@ -129,117 +126,162 @@ func RapiraBid() (*domain.Order, error) {
 }
 
 func FetchRapiraBid() ([]*domain.Order, error) {
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-
-	var htmlContent string
-	err := chromedp.Run(ctx,
-		chromedp.Navigate("https://rapira.net/exchange/USDT_RUB"),
-		chromedp.WaitVisible(`table.table-orders-sell`, chromedp.ByQuery),
-		chromedp.OuterHTML("html", &htmlContent),
+	const (
+		maxAttempts  = 3
+		opTimeout    = 20 * time.Second
+		initialSleep = 500 * time.Millisecond
 	)
-	if err != nil {
-		logger.Log.Errorf("chromedp error: %v", err)
-		return nil, err
-	}
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
-	if err != nil {
-		logger.Log.Errorf("failed to parse HTML: %v", err)
-		return nil, err
-	}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var htmlContent string
+		err := runOnceWithNewTab(opTimeout,
+			chromedp.Navigate("https://rapira.net/exchange/USDT_RUB"),
+			chromedp.WaitReady("body", chromedp.ByQuery),
+			chromedp.Sleep(initialSleep),
+			chromedp.ActionFunc(EnsureNoOverlay),
+			chromedp.ActionFunc(AcceptCookies),
+			chromedp.WaitVisible(`table.table.table-row-dashed.table-orders-sell.gy-1.gs-1 tbody tr`, chromedp.ByQuery),
+			chromedp.Sleep(150*time.Millisecond),
+			chromedp.OuterHTML(`table.table.table-row-dashed.table-orders-sell.gy-1.gs-1`, &htmlContent, chromedp.ByQuery),
+		)
 
-	rows := doc.Find("table.table-orders-sell tbody tr")
-	if rows.Length() < 5 {
-		logger.Log.Error("not enough bid rows")
-		return nil, fmt.Errorf("bid table too short")
-	}
-
-	orders := []*domain.Order{}
-	rows.EachWithBreak(func(i int, s *goquery.Selection) bool {
-		if i >= 5 {
-			return false
+		if err != nil {
+			lastErr = err
+			logger.Log.Warnf("Rapira Bid attempt %d/%d failed: %v", attempt, maxAttempts, err)
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			continue
 		}
-		tds := s.Find("td")
-		if tds.Length() < 3 {
+
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		rows := doc.Find("table.table-orders-sell tbody tr")
+		n := rows.Length()
+		if n == 0 {
+			lastErr = fmt.Errorf("rapira: bid table empty")
+	        continue
+		}
+		limit := 5
+		if n < limit {
+			limit = n
+		}
+
+		orders := make([]*domain.Order, 0, limit)
+		rows.EachWithBreak(func(i int, s *goquery.Selection) bool {
+			if i >= limit {
+				return false
+			}
+			tds := s.Find("td")
+			if tds.Length() < 3 {
+				return true
+			}
+			price, err1 := sanitizeNumericString(tds.Eq(0).Text())
+			amount, err2 := sanitizeNumericString(tds.Eq(1).Text())
+			sum, err3 := sanitizeNumericString(tds.Eq(2).Text())
+			if err1 != nil || err2 != nil || err3 != nil {
+				return true
+			}
+			orders = append(orders, &domain.Order{
+				Price:  price,
+				Amount: amount,
+				Sum:    sum,
+				Side:   domain.SideSell,
+				Source: domain.RapiraSource,
+				Pair:   domain.Usdtrub,
+			})
 			return true
-		}
-		price, err1 := sanitizeNumericString(tds.Eq(0).Text())
-		amount, err2 := sanitizeNumericString(tds.Eq(1).Text())
-		sum, err3 := sanitizeNumericString(tds.Eq(2).Text())
-		if err1 != nil || err2 != nil || err3 != nil {
-			return true
-		}
-		orders = append(orders, &domain.Order{
-			Price:  price,
-			Amount: amount,
-			Sum:    sum,
-			Side:   domain.SideSell,
-			Source: domain.RapiraSource,
-			Pair:   domain.Usdtrub,
 		})
-		return true
-	})
 
-	logger.Log.Info("Rapira Bid parsed")
-	return orders, nil
+		logger.Log.Info("Rapira Bid parsed")
+		return orders, nil
+	}
+
+	return nil, lastErr
 }
 
-
 func FetchRapiraAsk() ([]*domain.Order, error) {
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
-
-	var htmlContent string
-	err := chromedp.Run(ctx,
-		chromedp.Navigate("https://rapira.net/exchange/USDT_RUB"),
-		chromedp.WaitVisible(`table.table-orders-buy`, chromedp.ByQuery),
-		chromedp.OuterHTML("html", &htmlContent),
+	const (
+		maxAttempts  = 3
+		opTimeout    = 20 * time.Second
+		initialSleep = 500 * time.Millisecond
 	)
-	if err != nil {
-		logger.Log.Errorf("chromedp error: %v", err)
-		return nil, err
-	}
 
-	doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
-	if err != nil {
-		logger.Log.Errorf("failed to parse HTML: %v", err)
-		return nil, err
-	}
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		var htmlContent string
+		err := runOnceWithNewTab(opTimeout,
+			chromedp.Navigate("https://rapira.net/exchange/USDT_RUB"),
+			chromedp.WaitReady("body", chromedp.ByQuery),
+			chromedp.Sleep(initialSleep),
+			chromedp.ActionFunc(EnsureNoOverlay),
+			chromedp.ActionFunc(AcceptCookies),
+			chromedp.WaitVisible(`table.table.table-row-dashed.table-orders-buy.gy-1.gs-1.mb-0 tbody tr`, chromedp.ByQuery),
+			chromedp.Sleep(150*time.Millisecond),
+			chromedp.OuterHTML(`table.table.table-row-dashed.table-orders-buy.gy-1.gs-1.mb-0`, &htmlContent, chromedp.ByQuery),
+		)
 
-	rows := doc.Find("table.table-orders-buy tbody tr")
-	if rows.Length() < 5 {
-		logger.Log.Error("not enough ask rows")
-		return nil, fmt.Errorf("ask table too short")
-	}
-
-	orders := []*domain.Order{}
-	rows.EachWithBreak(func(i int, s *goquery.Selection) bool {
-		tds := s.Find("td")
-		if tds.Length() < 3 {
-			return true
+		if err != nil {
+			lastErr = err
+			logger.Log.Warnf("Rapira Ask attempt %d/%d failed: %v", attempt, maxAttempts, err)
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+			continue
 		}
-		price, err1 := sanitizeNumericString(tds.Eq(0).Text())
-		amount, err2 := sanitizeNumericString(tds.Eq(1).Text())
-		sum, err3 := sanitizeNumericString(tds.Eq(2).Text())
-		if err1 != nil || err2 != nil || err3 != nil {
-			return true
+
+		doc, err := goquery.NewDocumentFromReader(strings.NewReader(htmlContent))
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		orders = append(orders, &domain.Order{
-			Price:  price,
-			Amount: amount,
-			Sum:    sum,
-			Side:   domain.SideBuy,
-			Source: domain.RapiraSource,
-			Pair:   domain.Usdtrub,
+
+		rows := doc.Find("table.table-orders-buy tbody tr")
+		n := rows.Length()
+		if n == 0 {
+			lastErr = fmt.Errorf("rapira: bid table empty")
+	        continue
+		}
+		all := make([]*domain.Order, 0, n)
+		rows.Each(func(i int, s *goquery.Selection) {
+			tds := s.Find("td")
+			if tds.Length() < 3 {
+				return
+			}
+			price, err1 := sanitizeNumericString(tds.Eq(0).Text())
+			amount, err2 := sanitizeNumericString(tds.Eq(1).Text())
+			sum, err3 := sanitizeNumericString(tds.Eq(2).Text())
+			if err1 != nil || err2 != nil || err3 != nil {
+				return
+			}
+			all = append(all, &domain.Order{
+				Price:  price,
+				Amount: amount,
+				Sum:    sum,
+				Side:   domain.SideBuy,
+				Source: domain.RapiraSource,
+				Pair:   domain.Usdtrub,
+			})
 		})
-		return true
-	})
-	cleanOrders := make([]*domain.Order, 0)
-	for i := len(orders) - 1; i >= len(orders) - 5; i-- {
-		cleanOrders = append(cleanOrders, orders[i])
+
+		if len(all) == 0 {
+			lastErr = fmt.Errorf("ask table parsed empty")
+			continue
+		}
+
+		limit := 5
+		if len(all) < limit {
+			limit = len(all)
+		}
+		clean := make([]*domain.Order, 0, limit)
+		for i := len(all)-1; i >= len(all)-limit; i-- {
+			clean = append(clean, all[i])
+		}
+
+		logger.Log.Info("Rapira Ask parsed")
+		return clean, nil
 	}
-	
-	logger.Log.Info("Rapira Ask parsed")
-	return cleanOrders, nil
+
+	return nil, lastErr
 }

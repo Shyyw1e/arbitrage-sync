@@ -18,7 +18,7 @@ type OrderCacheKey struct {
 }
 
 func (k OrderCacheKey) String() string {
-    return fmt.Sprintf("%s|%s|%s", k.Source, k.Pair, k.Side)
+	return fmt.Sprintf("%s|%s|%s", k.Source, k.Pair, k.Side)
 }
 
 type cacheEntry struct {
@@ -28,17 +28,16 @@ type cacheEntry struct {
 }
 
 type OrderCache struct {
-	mu    sync.RWMutex
-	data  map[string]*cacheEntry
+	mu   sync.RWMutex
+	data map[string]*cacheEntry
 }
 
 func NewOrderCache() *OrderCache {
 	return &OrderCache{
 		data: make(map[string]*cacheEntry),
-		mu: sync.RWMutex{},
+		mu:   sync.RWMutex{},
 	}
 }
-
 
 func (c *OrderCache) GetOrFetch(
 	key OrderCacheKey,
@@ -46,23 +45,28 @@ func (c *OrderCache) GetOrFetch(
 ) ([]*domain.Order, error) {
 	keyHash := key.String()
 
+	// Чтение из кэша
 	c.mu.RLock()
 	entry, exists := c.data[keyHash]
 	c.mu.RUnlock()
 
 	if exists {
+		// Если кэш свежий
 		if time.Since(entry.UpdatedAt) < 60*time.Second {
 			logger.Log.Info("Got cache")
 			return entry.Orders, nil
 		}
 
+		// Если кэш обновляется – ждём
 		if entry.IsUpdating {
 			for {
 				time.Sleep(100 * time.Millisecond)
+
 				c.mu.RLock()
 				isDone := !entry.IsUpdating
 				orders := entry.Orders
 				c.mu.RUnlock()
+
 				if isDone {
 					logger.Log.Info("Waited for cache")
 					return orders, nil
@@ -71,6 +75,7 @@ func (c *OrderCache) GetOrFetch(
 		}
 	}
 
+	// Обновление кэша
 	c.mu.Lock()
 	entry, exists = c.data[keyHash]
 	if !exists {
@@ -83,9 +88,11 @@ func (c *OrderCache) GetOrFetch(
 	orders, err := fetchFunc()
 	if err != nil {
 		logger.Log.Errorf("failed to fetch: %v", err)
+
 		c.mu.Lock()
 		entry.IsUpdating = false
 		c.mu.Unlock()
+
 		return nil, err
 	}
 
