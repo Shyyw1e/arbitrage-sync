@@ -11,6 +11,12 @@ import (
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
 )
 
+/*
+На данный момент пара USDT/RUB на Grinex не работает, поэтому эта часть кода закомментирована
+Как только пара будет восстановлена, вернем рассмотрение и этих ситуаций
+*/
+
+
 var (
 	recentMu sync.Mutex
 	RecentHashes = make(map[string]time.Time)

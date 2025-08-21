@@ -63,7 +63,7 @@ func (w *worker) run(store db.UserStatesStore) {
 	var (
 		ticker *time.Ticker
 		tickC <-chan time.Time
-		cancel context.CancelFunc
+		//cancel context.CancelFunc
 	)
 
 	for {
@@ -108,9 +108,9 @@ func (w *worker) run(store db.UserStatesStore) {
 						ticker.Stop()
 					}
 					tickC = nil
-					if cancel != nil {
-						cancel()
-					}
+					// if cancel != nil {
+					// 	cancel()
+					// }
 				}
 				if c.reply != nil {
 					err := <-c.reply
@@ -125,9 +125,9 @@ func (w *worker) run(store db.UserStatesStore) {
 						ticker.Stop()
 					}
 					tickC = nil
-					if cancel != nil {
-						cancel()
-					}
+					// if cancel != nil {
+					// 	cancel()
+					// }
 				}
 				if c.reply != nil {
 					err := <-c.reply
