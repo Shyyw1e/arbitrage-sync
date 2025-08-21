@@ -3,10 +3,10 @@ package redisqueue
 import (
 	"context"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Shyyw1e/arbitrage-sync/internal/core/usecase"
@@ -16,147 +16,350 @@ import (
 )
 
 var (
-	userStore         db.UserStatesStore
-	runningTasks      = make(map[int64]context.CancelFunc)
-	runningTasksMutex sync.Mutex
+	userStore db.UserStatesStore
+	dispatcher = newDispatcher()
 )
 
 func InitRedisQueue(store db.UserStatesStore) {
 	userStore = store
 }
 
-func StartWorkerLoop(bot *tgbotapi.BotAPI) {
-	
-	go func ()  {
-		for {
-			job, err := DequeueJob()
-			if err != nil {
-				logger.Log.Errorf("failed to dequeue job: %v", err)
-				time.Sleep(2 * time.Second)
-				continue
-			}
+type cmdType int
 
-			if job == "" {
-				logger.Log.Info("Empty job")
-				time.Sleep(30 * time.Second)
-				continue
-			}
+const (
+	cmdStart cmdType = iota
+	cmdStop
+	cmdUpdate
+	cmdShutdown
+)
 
-			handleJob(job, bot)
-		}
-	}()
+type cmd struct {
+	typ cmdType
+	min float64
+	max float64
+	bot *tgbotapi.BotAPI
+	reply chan error
 }
 
-func handleJob(job string, bot *tgbotapi.BotAPI) {
-	if !strings.HasPrefix(job, "detect-as:") {
-		logger.Log.Errorf("unknown job format: %v", job)
-		return
-	}
+type worker struct {
+	chatID 		int64
+	cmdCh  		chan cmd
+	running 	atomic.Bool
+	min 		atomic.Value
+	max			atomic.Value
+	bot 		atomic.Value		//tgbotapi.BotAPI
+	hb 			atomic.Value		//time.Time (lastTick)
+}
 
-	parts := strings.Split(job, ":")
-	if len(parts) != 4 {
-		logger.Log.Errorf("invalid job parts: %v", job)
-		return
-	}
+func (w *worker) getMin() float64            { v, _ := w.min.Load().(float64); return v }
+func (w *worker) getMax() float64            { v, _ := w.max.Load().(float64); return v }
+func (w *worker) getBot() *tgbotapi.BotAPI   { v, _ := w.bot.Load().(*tgbotapi.BotAPI); return v }
+func (w *worker) lastHB() time.Time          { v, _ := w.hb.Load().(time.Time); return v }
+func (w *worker) setHB(t time.Time)          { w.hb.Store(t) }
+func (w *worker) isRunning() bool            { return w.running.Load() }
+func (w *worker) setRunning(v bool)          { w.running.Store(v) }
 
-	minDiff, err := strconv.ParseFloat(parts[1], 64)
-	if err != nil {
-		logger.Log.Errorf("failed to convert minDiff: %v", err)
-		return
-	}
-	minDiff = math.Round(minDiff*100) / 100
+func (w *worker) run(store db.UserStatesStore) {
+	var (
+		ticker *time.Ticker
+		tickC <-chan time.Time
+		cancel context.CancelFunc
+	)
 
-	maxSum, err := strconv.ParseFloat(parts[2], 64)
-	if err != nil {
-		logger.Log.Errorf("failed to convert maxSum: %v", err)
-		return
-	}
-	maxSum = math.Round(maxSum*100) / 100
+	for {
+		select {
+		case c := <-w.cmdCh:
+			switch c.typ {
+			case cmdStart:
+				w.min.Store(c.min)
+				w.max.Store(c.max)
+				w.bot.Store(c.bot)
 
-	chatID, err := strconv.ParseInt(parts[3], 10, 64)
-	if err != nil {
-		logger.Log.Errorf("failed to convert chatID: %v", err)
-		return
-	}
-
-	runningTasksMutex.Lock()
-	if _, exists := runningTasks[chatID]; exists {
-		runningTasksMutex.Unlock()
-		logger.Log.Infof("Analysis already running for chatID %d", chatID)
-		return
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	runningTasks[chatID] = cancel
-	runningTasksMutex.Unlock()
-
-	go func() {
-		defer func() {
-			runningTasksMutex.Lock()
-			delete(runningTasks, chatID)
-			runningTasksMutex.Unlock()
-			logger.Log.Infof("Stopped analysis loop for chatID %d", chatID)
-		}()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				state, err := userStore.Get(chatID)
-				logger.Log.Infof("Current state for user %d: %+v", chatID, state)
-				if err != nil || state == nil || state.Step != "ready_to_run" {
-					logger.Log.Infof("User %d is not active. Stopping analysis.", chatID)
-					return
+				if !w.isRunning() {
+					logger.Log.Infof("starting worker %d", w.chatID)
+					ticker = time.NewTicker(20*time.Second)
+					tickC = ticker.C
+					w.setRunning(true)
+				}
+				if c.reply != nil {
+					err := <-c.reply
+					logger.Log.WithError(err).Warnf("worker %d: failed to start worker", w.chatID)
+					c.reply <- nil
+				}
+			case cmdUpdate:
+				logger.Log.Infof("updating worker %d", w.chatID)
+				w.min.Store(c.min)
+				w.max.Store(c.max)
+				if c.bot == nil {
+					w.bot.Store(c.bot)
 				}
 
-				ops, pots, err := usecase.DetectAS(minDiff, maxSum)
-				if err != nil {
-					logger.Log.Errorf("failed to execute DetectAS: %v", err)
-					time.Sleep(15 * time.Second)
+				if c.reply != nil {
+					err := <- c.reply
+					logger.Log.WithError(err).Warnf("worker %d: failed to update worker", w.chatID)
+					c.reply <- nil
+				}
+
+			case cmdStop:
+				if w.isRunning() {
+					w.setRunning(false)
+					logger.Log.Infof("stopping worker %d", w.chatID)
+					if ticker != nil {
+						ticker.Stop()
+					}
+					tickC = nil
+					if cancel != nil {
+						cancel()
+					}
+				}
+				if c.reply != nil {
+					err := <-c.reply
+					logger.Log.WithError(err).Warnf("worker %d: failed to stop worker", w.chatID)
+					c.reply <- nil
+				}
+
+			case cmdShutdown:
+				if w.isRunning() {
+					w.setRunning(false)
+					if ticker != nil {
+						ticker.Stop()
+					}
+					tickC = nil
+					if cancel != nil {
+						cancel()
+					}
+				}
+				if c.reply != nil {
+					err := <-c.reply
+					logger.Log.WithError(err).Warnf("worker %d: failed to shutdown worker", w.chatID)
+					c.reply<-nil
+				}
+			}
+		case <-tickC:
+			st, err := store.Get(w.chatID)
+			if err != nil {
+				logger.Log.WithError(err).Warnf("worker %d: failed to get userStore", w.chatID)
+				continue
+			}
+			if st == nil || st.Step == "ready_to_run" {
+				logger.Log.Warnf("worker %d: empty store or invalid step:\nStep:%v", w.chatID, st.Step)
+				continue
+			}
+
+			min, max := w.getMin(), w.getMax()
+			bot := w.getBot()
+			if bot == nil {
+				logger.Log.Warnf("worker %d: bot is nil, skip tick", w.chatID)
+				continue
+			}
+
+			facts, err := usecase.DetectFact(min, max, w.chatID)
+			if err != nil {
+				logger.Log.WithError(err).Warnf("worker %d: DetectFact failed, skip tick", w.chatID)
+				continue
+			}
+			if len(facts) > 0 {
+				for _, op := range facts {
+					text := fmt.Sprintf("💰 Найден фактический арбитраж!\nBuy %s @ %.2f\nSell %s @ %.2f\nProfit: %.2f",
+						op.BuyExchange, op.BuyPrice, op.SellExchange, op.SellPrice, op.ProfitMargin)
+					_, err = bot.Send(tgbotapi.NewMessage(w.chatID, text))
+					if err != nil {
+						logger.Log.WithError(err).Warnf("worker %d: failed to send message", w.chatID)
+					}
+					time.Sleep(1500 * time.Millisecond)
+				}
+			}
+
+			ops, pots, err := usecase.DetectAS(min, max, w.chatID)
+			if err != nil {
+				logger.Log.WithError(err).Warnf("worker %d: DetectAS failed", w.chatID)
+				goto afterTick
+			}
+			if len(ops) > 0 {
+				for _, op := range ops {
+					text := fmt.Sprintf("💰 Найден потенциальный арбитраж!\nBuy %s @ %.2f\nSell %s @ %.2f\nProfit: %.2f",
+						op.BuyExchange, op.BuyPrice, op.SellExchange, op.SellPrice, op.ProfitMargin)
+					_, err = bot.Send(tgbotapi.NewMessage(w.chatID, text))
+					if err != nil {
+						logger.Log.WithError(err).Warnf("worker %d: failed to send message", w.chatID)
+					}
+					time.Sleep(1500 * time.Millisecond)
+				}
+			}
+			if len(pots) > 0 {
+				for _, op := range pots {
+					text := fmt.Sprintf("💰 Найден обратный потенциальный арбитраж!\nBuy %s @ %.2f\nSell %s @ %.2f\nProfit: %.2f",
+						op.BuyExchange, op.BuyPrice, op.SellExchange, op.SellPrice, op.ProfitMargin)
+					_, err = bot.Send(tgbotapi.NewMessage(w.chatID, text))
+					if err != nil {
+						logger.Log.WithError(err).Warnf("worker %d: failed to send message", w.chatID)
+					}
+					time.Sleep(1500 * time.Millisecond)
+				}
+			}
+
+			afterTick:
+			// HB только после завершения тика (чтобы watchdog не трогал долгие парсы)
+			w.setHB(time.Now())
+
+
+		}
+	}
+}
+
+
+
+
+
+type dispatcherT struct {
+	mu 			sync.Mutex
+	workers 	map[int64]*worker
+}
+
+func newDispatcher() *dispatcherT {
+	return &dispatcherT{workers: make(map[int64]*worker)}
+}
+
+func (d *dispatcherT) ensure(chatID int64, store db.UserStatesStore) *worker {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if w, ok := d.workers[chatID]; ok {
+		logger.Log.Infof("Worker %d: ensured", chatID)
+		return w
+	}
+
+	w := &worker{chatID: chatID,
+		cmdCh: make(chan cmd, 16),
+	}
+
+	w.hb.Store(time.Time{})
+	d.workers[chatID] = w
+	go w.run(store)
+
+	logger.Log.Infof("Worker %d: ensured", chatID)
+	return w
+}
+
+func (d *dispatcherT) start(chatID int64, min, max float64, bot *tgbotapi.BotAPI, store db.UserStatesStore) error {
+	w := d.ensure(chatID, store)
+	reply := make(chan error, 1)
+	w.cmdCh<-cmd{typ: cmdStart, min: min, max: max, bot: bot, reply: reply}
+	return <-reply
+}
+
+func (d *dispatcherT) stop(chatID int64, store db.UserStatesStore) error {
+	d.mu.Lock()
+	w, ok := d.workers[chatID]
+	d.mu.Unlock()
+	if !ok {
+		logger.Log.Warn("Nothing to stop, worker wasn't created")
+		return nil
+	}
+	reply := make(chan error, 1)
+	w.cmdCh<-cmd{typ: cmdStop, reply: reply}
+	
+	return <-reply
+}
+
+func (d *dispatcherT) isRunning(chatID int64) bool {
+	d.mu.Lock()
+	w, ok := d.workers[chatID]
+	d.mu.Unlock()
+	if !ok {
+		return false
+	}
+	return w.isRunning()
+}
+
+func (d *dispatcherT) list() []*worker {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	out := make([]*worker, 0, len(d.workers))
+	for _, w := range d.workers {
+		out = append(out, w)
+	}
+	return out
+}
+
+func StartWorkerLoop(bot *tgbotapi.BotAPI) {
+	go func ()  {
+		for {
+			res, err := RedisClient.BLPop(context.Background(), 10*time.Second, JobQueueKey).Result()
+			if err != nil  && !strings.Contains(strings.ToLower(err.Error()), "nil") && len(res) == 0{
+				logger.Log.Errorf("BLPOP error: %v", err)
+				continue
+			}
+
+			if len(res) < 2 {
+				continue
+			}
+			job := res[1]
+
+			if !strings.HasPrefix(job, "detect-as:") {
+				logger.Log.Warnf("unkwnown job: %s", job)
+				continue
+			}
+
+			parts := strings.Split(job, ":")
+			if len(parts) != 4 {
+				logger.Log.Warnf("invalid job format: %s", job)
+				continue
+			}
+
+			min, err1 := strconv.ParseFloat(parts[1], 64)
+			max, err2 := strconv.ParseFloat(parts[2], 64)
+			chatID, err3 := strconv.ParseInt(parts[3], 10, 64)
+			if err1 != nil || err2 != nil || err3 != nil {
+				logger.Log.Warnf("job parse error: %v %v %v (%s)", err1, err2, err3, job)
+				continue
+			}
+			
+			st, _ := userStore.Get(chatID)
+			if st == nil || st.Step != "ready_to_run" {
+				logger.Log.Warnf("skip for job %v: user not active", chatID)
+				continue
+			}
+
+			if err := dispatcher.start(chatID, min, max, bot, userStore); err != nil {
+				logger.Log.Errorf("dispatcher start failed for %d: %v", chatID, err)
+			}
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(15*time.Second)
+		defer t.Stop()
+
+		for range t.C {
+			now := time.Now()
+			ws := dispatcher.list()
+
+			for _, w := range ws {
+				if !w.isRunning() {
 					continue
 				}
 
-				if len(ops) == 0 && len(pots) == 0 {
-					bot.Send(tgbotapi.NewMessage(chatID, "🤔 Арбитражных ситуаций не найдено."))
-				} else {
-					for _, op := range ops {
-						text := fmt.Sprintf("💰 Найден арбитраж!\nBuy %s @ %.2f\nSell %s @ %.2f\nProfit: %.2f",
-							op.BuyExchange, op.BuyPrice, op.SellExchange, op.SellPrice, op.ProfitMargin)
-						bot.Send(tgbotapi.NewMessage(chatID, text))
-					}
-					for _, op := range pots {
-						text := fmt.Sprintf("💰 Найден обратный арбитраж!\nBuy %s @ %.2f\nSell %s @ %.2f\nProfit: %.2f",
-							op.BuyExchange, op.BuyPrice, op.SellExchange, op.SellPrice, op.ProfitMargin)
-						bot.Send(tgbotapi.NewMessage(chatID, text))
-					}
+				hb := w.lastHB()
+				if hb.IsZero() || now.Sub(hb) <= 90*time.Second {
+					continue
 				}
 
-				time.Sleep(5 * time.Second)
+				logger.Log.Warnf("Watchdog: stale worker chat=%d lastHB=%v -> soft restart", w.chatID, hb)
+
+				if err := dispatcher.stop(w.chatID, userStore); err != nil {
+					logger.Log.WithError(err).Warnf("Watchdog stop failed chat=%d", w.chatID)
+					continue
+				}
+
+				if st, err := userStore.Get(w.chatID); err == nil && st != nil && st.Step == "ready_to_run" {
+					if err := dispatcher.start(w.chatID, st.MinDiff, st.MaxSum, w.getBot(), userStore); err != nil {
+						logger.Log.WithError(err).Warnf("Watchdog start failed chat=%d", w.chatID)
+					}
+				} else {
+					logger.Log.Infof("Watchdog: chat=%d not active -> skip restart", w.chatID)
+				}
 			}
 		}
 	}()
-}
-
-func StopAnalysis(store db.UserStatesStore, chatID int64) error {
-	runningTasksMutex.Lock()
-	cancel, ok := runningTasks[chatID]
-	if ok {
-		cancel()
-		delete(runningTasks, chatID)
-	}
-	runningTasksMutex.Unlock()
-
-	if !ok {
-		logger.Log.Infof("No running analysis for chatID %d", chatID)
-		return fmt.Errorf("no running analysis for chatID %d", chatID)
-	}
-
-	state, err := store.Get(chatID)
-	if err == nil && state != nil {
-		state.Step = "not_active"
-		store.Set(chatID, state)
-	}
-
-	logger.Log.Infof("Analysis stopped for chatID %d", chatID)
-	return nil
 }
