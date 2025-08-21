@@ -13,6 +13,7 @@ import (
 	"github.com/Shyyw1e/arbitrage-sync/internal/infrastructure/db"
 	"github.com/Shyyw1e/arbitrage-sync/pkg/logger"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 var (
@@ -82,21 +83,17 @@ func (w *worker) run(store db.UserStatesStore) {
 					w.setRunning(true)
 				}
 				if c.reply != nil {
-					err := <-c.reply
-					logger.Log.WithError(err).Warnf("worker %d: failed to start worker", w.chatID)
 					c.reply <- nil
 				}
 			case cmdUpdate:
 				logger.Log.Infof("updating worker %d", w.chatID)
 				w.min.Store(c.min)
 				w.max.Store(c.max)
-				if c.bot == nil {
+				if c.bot != nil {
 					w.bot.Store(c.bot)
 				}
 
 				if c.reply != nil {
-					err := <- c.reply
-					logger.Log.WithError(err).Warnf("worker %d: failed to update worker", w.chatID)
 					c.reply <- nil
 				}
 
@@ -113,8 +110,6 @@ func (w *worker) run(store db.UserStatesStore) {
 					// }
 				}
 				if c.reply != nil {
-					err := <-c.reply
-					logger.Log.WithError(err).Warnf("worker %d: failed to stop worker", w.chatID)
 					c.reply <- nil
 				}
 
@@ -130,10 +125,9 @@ func (w *worker) run(store db.UserStatesStore) {
 					// }
 				}
 				if c.reply != nil {
-					err := <-c.reply
-					logger.Log.WithError(err).Warnf("worker %d: failed to shutdown worker", w.chatID)
 					c.reply<-nil
 				}
+				return
 			}
 		case <-tickC:
 			st, err := store.Get(w.chatID)
@@ -141,10 +135,13 @@ func (w *worker) run(store db.UserStatesStore) {
 				logger.Log.WithError(err).Warnf("worker %d: failed to get userStore", w.chatID)
 				continue
 			}
-			if st == nil || st.Step == "ready_to_run" {
-				logger.Log.Warnf("worker %d: empty store or invalid step:\nStep:%v", w.chatID, st.Step)
+			if st == nil || st.Step != "ready_to_run" {
+				step := "<nil>"
+				if st != nil { step = st.Step }
+				logger.Log.Warnf("worker %d: inactive user state (step=%s)", w.chatID, step)
 				continue
 			}
+
 
 			min, max := w.getMin(), w.getMax()
 			bot := w.getBot()
@@ -248,7 +245,7 @@ func (d *dispatcherT) start(chatID int64, min, max float64, bot *tgbotapi.BotAPI
 	return <-reply
 }
 
-func (d *dispatcherT) stop(chatID int64, store db.UserStatesStore) error {
+func (d *dispatcherT) stop(chatID int64, _ db.UserStatesStore) error {
 	d.mu.Lock()
 	w, ok := d.workers[chatID]
 	d.mu.Unlock()
@@ -286,7 +283,10 @@ func StartWorkerLoop(bot *tgbotapi.BotAPI) {
 	go func ()  {
 		for {
 			res, err := RedisClient.BLPop(context.Background(), 10*time.Second, JobQueueKey).Result()
-			if err != nil  && !strings.Contains(strings.ToLower(err.Error()), "nil") && len(res) == 0{
+			if err != nil {
+				if err == redis.Nil { // таймаут — ничего не пришло
+					continue
+				}
 				logger.Log.Errorf("BLPOP error: %v", err)
 				continue
 			}
@@ -297,7 +297,7 @@ func StartWorkerLoop(bot *tgbotapi.BotAPI) {
 			job := res[1]
 
 			if !strings.HasPrefix(job, "detect-as:") {
-				logger.Log.Warnf("unkwnown job: %s", job)
+				logger.Log.Warnf("unknown job: %s", job)
 				continue
 			}
 
@@ -317,7 +317,9 @@ func StartWorkerLoop(bot *tgbotapi.BotAPI) {
 			
 			st, _ := userStore.Get(chatID)
 			if st == nil || st.Step != "ready_to_run" {
-				logger.Log.Warnf("skip for job %v: user not active", chatID)
+				step := "<nil>"
+				if st != nil { step = st.Step }
+				logger.Log.Warnf("worker %d: inactive user state (step=%s)", chatID, step)
 				continue
 			}
 
