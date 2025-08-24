@@ -76,6 +76,8 @@ func (w *worker) run(store db.UserStatesStore) {
 				w.max.Store(c.max)
 				w.bot.Store(c.bot)
 
+				w.setHB(time.Now())
+
 				if !w.isRunning() {
 					logger.Log.Infof("starting worker %d", w.chatID)
 					ticker = time.NewTicker(20*time.Second)
@@ -105,10 +107,8 @@ func (w *worker) run(store db.UserStatesStore) {
 						ticker.Stop()
 					}
 					tickC = nil
-					// if cancel != nil {
-					// 	cancel()
-					// }
 				}
+				w.hb.Store(time.Time{})
 				if c.reply != nil {
 					c.reply <- nil
 				}
@@ -282,12 +282,19 @@ func (d *dispatcherT) list() []*worker {
 func StartWorkerLoop(bot *tgbotapi.BotAPI) {
 	go func ()  {
 		for {
-			res, err := RedisClient.BLPop(context.Background(), 10*time.Second, JobQueueKey).Result()
+			res, err := getRedis().BLPop(context.Background(), 10*time.Second, JobQueueKey).Result()
 			if err != nil {
-				if err == redis.Nil { // таймаут — ничего не пришло
+				if err == redis.Nil { // таймаут ожидания — норм
+					continue
+				}
+				if isReadOnlyErr(err) {
+					logger.Log.Warn("Redis returned READONLY on BLPOP — reconnecting...")
+					_ = resetRedisClient()
+					time.Sleep(2 * time.Second) // небольшой бэкофф
 					continue
 				}
 				logger.Log.Errorf("BLPOP error: %v", err)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 
